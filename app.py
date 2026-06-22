@@ -1,1145 +1,700 @@
 """
-PocketHub — File Pockets + Smart Notification System
-A complete Python/Tkinter desktop application.
+PocketHub — Streamlit port of the React notification + folder management app.
+Run with:  streamlit run pockethub_app.py
 """
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
-import json
-import os
-import shutil
-import time
-import threading
+import streamlit as st
+from datetime import datetime
+import random
 import uuid
-import datetime
-from pathlib import Path
 
-# ─── Theme / Palette ──────────────────────────────────────────────────────────
-BG       = "#0B0D14"
-SURFACE  = "#131620"
-CARD     = "#181B28"
-HOVER    = "#1C2030"
-BORDER   = "#252A40"
-TEXT     = "#E8EAF6"
-MUTED    = "#6B72A8"
-SUBTLE   = "#9BA3D4"
+# ─── Page config ──────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="PocketHub",
+    page_icon="🗂",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-SUCCESS  = "#22C55E"; SUCCESS_BG = "#0A1F12"
-ERROR    = "#EF4444"; ERROR_BG   = "#1F0A0A"
-WARNING  = "#F59E0B"; WARNING_BG = "#1F180A"
-INFO     = "#6366F1"; INFO_BG    = "#0E0F20"
-BIRTHDAY = "#EC4899"; BDAY_BG    = "#1F0A16"
-ACCENT   = "#6366F1"
-PURPLE   = "#8B5CF6"
-TEAL     = "#14B8A6"
-ORANGE   = "#F97316"
+# ─── Theme colours (CSS variables injected once) ──────────────────────────────
+THEME = dict(
+    bg="#0B0D14", surface="#131620", surfaceHover="#1C2030", card="#181B28",
+    border="#252A40", borderHover="#3A4060", text="#E8EAF6", textMuted="#6B72A8",
+    textSub="#9BA3D4", success="#22C55E", successBg="#0A1F12",
+    error="#EF4444", errorBg="#1F0A0A", warning="#F59E0B", warningBg="#1F180A",
+    info="#6366F1", infoBg="#0E0F20", birthday="#EC4899", birthdayBg="#1F0A16",
+    accent="#6366F1", purple="#8B5CF6", teal="#14B8A6", orange="#F97316",
+)
+C = THEME   # short alias
 
 TYPE_CFG = {
-    "success":  {"color": SUCCESS,  "bg": SUCCESS_BG,  "icon": "✓",  "label": "Success"},
-    "error":    {"color": ERROR,    "bg": ERROR_BG,    "icon": "✕",  "label": "Error"},
-    "warning":  {"color": WARNING,  "bg": WARNING_BG,  "icon": "⚠",  "label": "Warning"},
-    "info":     {"color": INFO,     "bg": INFO_BG,     "icon": "ℹ",  "label": "Info"},
-    "birthday": {"color": BIRTHDAY, "bg": BDAY_BG,     "icon": "🎂", "label": "Birthday"},
-    "reminder": {"color": WARNING,  "bg": WARNING_BG,  "icon": "🔔", "label": "Reminder"},
-    "exam":     {"color": ERROR,    "bg": ERROR_BG,    "icon": "📝", "label": "Exam"},
-    "deadline": {"color": WARNING,  "bg": WARNING_BG,  "icon": "⏰", "label": "Deadline"},
-}
-
-FILE_ICONS = {
-    "pdf": "📄", "doc": "📝", "docx": "📝", "txt": "📃",
-    "png": "🖼", "jpg": "🖼", "jpeg": "🖼", "gif": "🖼",
-    "mp4": "🎬", "mp3": "🎵", "zip": "📦",
-    "xlsx": "📊", "xls": "📊", "ppt": "📊", "pptx": "📊", "csv": "📊",
+    "success":  {"color": C["success"],  "bg": C["successBg"],  "icon": "✅", "label": "Success"},
+    "error":    {"color": C["error"],    "bg": C["errorBg"],    "icon": "❌", "label": "Error"},
+    "warning":  {"color": C["warning"],  "bg": C["warningBg"],  "icon": "⚠️", "label": "Warning"},
+    "info":     {"color": C["info"],     "bg": C["infoBg"],     "icon": "ℹ️", "label": "Info"},
+    "birthday": {"color": C["birthday"], "bg": C["birthdayBg"], "icon": "🎂", "label": "Birthday"},
+    "reminder": {"color": C["warning"],  "bg": C["warningBg"],  "icon": "🔔", "label": "Reminder"},
+    "exam":     {"color": C["error"],    "bg": C["errorBg"],    "icon": "📝", "label": "Exam"},
+    "deadline": {"color": C["warning"],  "bg": C["warningBg"],  "icon": "⏰", "label": "Deadline"},
 }
 
 DEFAULT_FOLDERS = [
-    {"id": "assignments", "name": "Assignments", "icon": "📚", "color": WARNING,  "desc": "Homework, projects & submissions"},
-    {"id": "credentials", "name": "Credentials", "icon": "🔐", "color": SUCCESS,  "desc": "Passwords, logins & access keys"},
-    {"id": "notes",       "name": "Study Notes", "icon": "📓", "color": INFO,     "desc": "Lectures, summaries & flashcards"},
-    {"id": "exams",       "name": "Exam Prep",   "icon": "🎯", "color": ERROR,    "desc": "Mock tests, question banks & scores"},
+    {"id": "assignments", "name": "Assignments", "icon": "📚", "color": C["warning"],  "desc": "Homework, projects & submissions"},
+    {"id": "credentials", "name": "Credentials", "icon": "🔐", "color": C["success"],  "desc": "Passwords, logins & access keys"},
+    {"id": "notes",       "name": "Study Notes", "icon": "📓", "color": C["info"],     "desc": "Lectures, summaries & flashcards"},
+    {"id": "exams",       "name": "Exam Prep",   "icon": "🎯", "color": C["error"],    "desc": "Mock tests, question banks & scores"},
 ]
 
 DEMO_NOTIFS = [
-    {"type": "success",  "title": "Note Saved Successfully",    "body": "Study notes for Chapter 7 saved."},
-    {"type": "success",  "title": "Assignment Submitted",       "body": "Physics assignment submitted at 11:45 PM."},
-    {"type": "success",  "title": "Password Added",             "body": "Credential for 'College Portal' saved."},
-    {"type": "error",    "title": "Invalid Login Credentials",  "body": "Check your username and password."},
-    {"type": "error",    "title": "Failed to Save Data",        "body": "Network timeout. Changes not saved."},
-    {"type": "warning",  "title": "Assignment Due Tomorrow",    "body": "Maths Assignment 3 due at 11:59 PM."},
-    {"type": "warning",  "title": "Exam in 2 Days",             "body": "Physics Unit Test — Thursday 9 AM."},
-    {"type": "info",     "title": "New Update Available",       "body": "v2.4.1 — improved timetable sync."},
-    {"type": "info",     "title": "Timetable Updated",          "body": "Wednesday's lab moved to Room 204."},
-    {"type": "birthday", "title": "Today is Priya's Birthday 🎂","body": "Don't forget to wish her!"},
-    {"type": "reminder", "title": "Good Morning! ☀️",           "body": "3 classes today. First at 9:00 AM."},
-    {"type": "deadline", "title": "Deadline in 4 Hours ⏰",     "body": "Network Security — submit before 6 PM."},
-    {"type": "reminder", "title": "AFCAT Study Session 📚",    "body": "Study session at 6 PM tonight."},
-    {"type": "exam",     "title": "Exam Starting Soon 📝",      "body": "AFCAT mock test in 30 minutes!"},
+    {"type": "success", "title": "Note Saved Successfully",     "body": "Study notes for Chapter 7 have been saved."},
+    {"type": "success", "title": "Assignment Submitted",         "body": "Physics assignment submitted at 11:45 PM."},
+    {"type": "success", "title": "Password Added",               "body": "Credential for 'College Portal' saved securely."},
+    {"type": "error",   "title": "Invalid Login Credentials",    "body": "Check your username and password and try again."},
+    {"type": "warning", "title": "Assignment Due Tomorrow",      "body": "Mathematics Assignment 3 is due at 11:59 PM tomorrow."},
+    {"type": "warning", "title": "Exam in 2 Days",               "body": "Physics Unit Test — Thursday 9 AM."},
+    {"type": "info",    "title": "Timetable Updated",            "body": "Wednesday's lab session moved to Room 204."},
+    {"type": "birthday","title": "Today is Priya's Birthday 🎂", "body": "Don't forget to wish her!"},
+    {"type": "reminder","title": "AFCAT Study Session 📚",       "body": "Don't forget your session at 6 PM tonight."},
+    {"type": "exam",    "title": "Exam Alert 📝",                "body": "AFCAT mock test starts in 30 minutes. Best of luck!"},
 ]
 
+FILE_ICONS = {
+    "pdf": "📄", "doc": "📝", "docx": "📝", "txt": "📃", "png": "🖼️",
+    "jpg": "🖼️", "jpeg": "🖼️", "gif": "🖼️", "mp4": "🎬", "mp3": "🎵",
+    "zip": "📦", "xlsx": "📊", "xls": "📊", "ppt": "📊", "pptx": "📊", "csv": "📊",
+}
 
-# ─── Utilities ────────────────────────────────────────────────────────────────
-def now_str():
-    return datetime.datetime.now().strftime("%b %d, %I:%M %p")
+FOLDER_ICONS = ["📁","📂","📚","🗂","🔐","📝","🎯","📓","🗄","💼","🧪","🏆","🎮","🔬","📊"]
+FOLDER_COLORS = [C["accent"], C["success"], C["error"], C["warning"],
+                 C["birthday"], C["teal"], C["orange"], C["purple"]]
 
-def fmt_size(b):
-    if b < 1024:     return f"{b} B"
-    elif b < 1048576:return f"{b/1024:.1f} KB"
-    else:            return f"{b/1048576:.1f} MB"
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def file_icon(name):
+def file_icon(name: str) -> str:
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     return FILE_ICONS.get(ext, "📎")
 
-def make_id():
-    return str(uuid.uuid4())[:8]
+def fmt_size(b: int) -> str:
+    if b < 1024:      return f"{b} B"
+    if b < 1_048_576: return f"{b/1024:.1f} KB"
+    return f"{b/1_048_576:.1f} MB"
 
+def now_full() -> str:
+    return datetime.now().strftime("%b %d, %I:%M %p")
 
-# ─── Scrollable Frame helper ──────────────────────────────────────────────────
-class ScrollFrame(tk.Frame):
-    def __init__(self, parent, **kw):
-        super().__init__(parent, bg=kw.get("bg", BG))
-        self.canvas = tk.Canvas(self, bg=kw.get("bg", BG), bd=0, highlightthickness=0)
-        self.vsb    = tk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.vsb.set)
-        self.vsb.pack(side="right", fill="y")
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.inner  = tk.Frame(self.canvas, bg=kw.get("bg", BG))
-        self._win   = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
-        self.inner.bind("<Configure>", self._on_configure)
-        self.canvas.bind("<Configure>", self._on_canvas_configure)
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+def new_notif(data: dict) -> dict:
+    return {**data, "id": str(uuid.uuid4()), "read": False, "time": now_full()}
 
-    def _on_configure(self, e):
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+# ─── Session state init ───────────────────────────────────────────────────────
 
-    def _on_canvas_configure(self, e):
-        self.canvas.itemconfig(self._win, width=e.width)
+def init_state():
+    if "tab" not in st.session_state:
+        st.session_state.tab = "folders"
+    if "notifs" not in st.session_state:
+        st.session_state.notifs = []
+    if "folders" not in st.session_state:
+        st.session_state.folders = [dict(f) for f in DEFAULT_FOLDERS]
+    if "files" not in st.session_state:
+        st.session_state.files = []
+    if "open_folder" not in st.session_state:
+        st.session_state.open_folder = None
+    if "toast_msg" not in st.session_state:
+        st.session_state.toast_msg = None
+    if "search" not in st.session_state:
+        st.session_state.search = ""
+    if "show_new_folder" not in st.session_state:
+        st.session_state.show_new_folder = False
+    if "rename_folder_id" not in st.session_state:
+        st.session_state.rename_folder_id = None
+    if "rename_file_id" not in st.session_state:
+        st.session_state.rename_file_id = None
+    if "view_file_id" not in st.session_state:
+        st.session_state.view_file_id = None
+    if "notif_filter" not in st.session_state:
+        st.session_state.notif_filter = "all"
 
-    def _on_mousewheel(self, e):
-        self.canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+init_state()
 
+# ─── Custom CSS ───────────────────────────────────────────────────────────────
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
-# ─── Toast Notification (overlay window) ─────────────────────────────────────
-class ToastManager:
-    """Manages a stack of floating toast windows."""
-    def __init__(self, root):
-        self.root   = root
-        self.toasts = []   # list of (window, y_pos)
+html, body, [class*="css"] {{
+    font-family: 'Inter', sans-serif !important;
+    background-color: {C['bg']} !important;
+    color: {C['text']} !important;
+}}
 
-    def show(self, title, body, ntype="info"):
-        cfg = TYPE_CFG.get(ntype, TYPE_CFG["info"])
-        win = tk.Toplevel(self.root)
-        win.overrideredirect(True)
-        win.attributes("-topmost", True)
-        win.configure(bg=SURFACE)
+/* Hide Streamlit chrome */
+#MainMenu, footer, header {{ visibility: hidden; }}
+.block-container {{ padding-top: 1rem !important; max-width: 1100px; }}
 
-        W, H = 340, 80
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
+/* Tabs styling */
+.stTabs [role="tablist"] {{
+    background: {C['card']};
+    border-radius: 12px;
+    padding: 4px;
+    gap: 4px;
+    border: 1px solid {C['border']};
+}}
+.stTabs [role="tab"] {{
+    border-radius: 8px !important;
+    color: {C['textMuted']} !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+}}
+.stTabs [aria-selected="true"] {{
+    background: {C['accent']} !important;
+    color: #fff !important;
+}}
+.stTabs [role="tabpanel"] {{ background: transparent !important; }}
 
-        # stack from bottom-right
-        idx = len(self.toasts)
-        x = sw - W - 16
-        y = sh - 60 - (H + 10) * (idx + 1)
-        win.geometry(f"{W}x{H}+{x}+{y}")
+/* Buttons */
+.stButton > button {{
+    background: {C['accent']} !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    padding: 8px 18px !important;
+}}
+.stButton > button:hover {{
+    background: #4F46E5 !important;
+    border: none !important;
+}}
 
-        # Border frame
-        outer = tk.Frame(win, bg=cfg["color"], padx=2, pady=2)
-        outer.pack(fill="both", expand=True)
-        inner = tk.Frame(outer, bg=SURFACE)
-        inner.pack(fill="both", expand=True)
+/* Text input */
+.stTextInput > div > div > input {{
+    background: {C['card']} !important;
+    color: {C['text']} !important;
+    border: 1px solid {C['border']} !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+}}
+.stTextInput > div > div > input:focus {{
+    border-color: {C['accent']} !important;
+    box-shadow: 0 0 0 2px {C['accent']}33 !important;
+}}
 
-        # Icon
-        icon_lbl = tk.Label(inner, text=cfg["icon"], font=("Segoe UI Emoji", 18),
-                            bg=cfg["bg"], fg=cfg["color"], width=3)
-        icon_lbl.pack(side="left", padx=(6, 0), pady=6)
+/* Selectbox */
+.stSelectbox > div > div {{
+    background: {C['card']} !important;
+    color: {C['text']} !important;
+    border: 1px solid {C['border']} !important;
+    border-radius: 10px !important;
+}}
 
-        # Text
-        txt = tk.Frame(inner, bg=SURFACE)
-        txt.pack(side="left", fill="both", expand=True, padx=8, pady=8)
-        tk.Label(txt, text=title, font=("Segoe UI", 10, "bold"),
-                 bg=SURFACE, fg=TEXT, anchor="w").pack(fill="x")
-        tk.Label(txt, text=body, font=("Segoe UI", 8),
-                 bg=SURFACE, fg=MUTED, anchor="w", wraplength=220).pack(fill="x")
+/* File uploader */
+.stFileUploader > div {{
+    background: {C['card']} !important;
+    border: 2px dashed {C['border']} !important;
+    border-radius: 12px !important;
+    color: {C['textMuted']} !important;
+}}
 
-        # Time
-        tk.Label(inner, text=datetime.datetime.now().strftime("%I:%M %p"),
-                 font=("Segoe UI", 7), bg=SURFACE, fg=MUTED).pack(side="right", padx=6, pady=6, anchor="ne")
+/* Metric */
+[data-testid="metric-container"] {{
+    background: {C['surface']} !important;
+    border: 1px solid {C['border']} !important;
+    border-radius: 12px !important;
+    padding: 14px 16px !important;
+}}
 
-        # Progress bar (simulated)
-        bar_canvas = tk.Canvas(win, height=3, bg=SURFACE, highlightthickness=0)
-        bar_canvas.place(relx=0, rely=1, relwidth=1, anchor="sw")
-        bar_id = bar_canvas.create_rectangle(0, 0, W, 3, fill=cfg["color"], outline="")
+/* Scrollbar */
+::-webkit-scrollbar {{ width: 5px; }}
+::-webkit-scrollbar-track {{ background: transparent; }}
+::-webkit-scrollbar-thumb {{ background: {C['border']}; border-radius: 10px; }}
 
-        self.toasts.append(win)
+/* Expander */
+.streamlit-expanderHeader {{
+    background: {C['surface']} !important;
+    color: {C['text']} !important;
+    border: 1px solid {C['border']} !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+}}
+.streamlit-expanderContent {{
+    background: {C['surface']} !important;
+    border: 1px solid {C['border']} !important;
+    border-top: none !important;
+}}
+</style>
+""", unsafe_allow_html=True)
 
-        # Close button
-        def close():
-            try:
-                win.destroy()
-                if win in self.toasts:
-                    self.toasts.remove(win)
-                    self._restack()
-            except Exception:
-                pass
+# ─── App Header ───────────────────────────────────────────────────────────────
+col_logo, col_spacer = st.columns([1, 3])
+with col_logo:
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0 16px">
+      <div style="width:40px;height:40px;border-radius:10px;
+                  background:linear-gradient(135deg,{C['accent']},#818CF8);
+                  display:flex;align-items:center;justify-content:center;font-size:20px;">🗂</div>
+      <div>
+        <div style="font-size:16px;font-weight:900;color:{C['text']}">PocketHub</div>
+        <div style="font-size:10px;color:{C['textMuted']}">Files · Folders · Notifications</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        win.bind("<Button-1>", lambda e: close())
+# ─── Toast / banner helper ────────────────────────────────────────────────────
+def show_toast(data: dict):
+    """Push a notification and display a Streamlit toast."""
+    notif = new_notif(data)
+    st.session_state.notifs.insert(0, notif)
+    cfg = TYPE_CFG.get(data["type"], TYPE_CFG["info"])
+    st.toast(f"{cfg['icon']} **{data['title']}** — {data['body']}")
 
-        # Auto-dismiss after 4.5s + shrink bar
-        steps = 90
-        delay = int(4500 / steps)
+# ─── Render a single notification row ────────────────────────────────────────
+def notif_row(n: dict):
+    cfg = TYPE_CFG.get(n["type"], TYPE_CFG["info"])
+    unread_dot = "🔵 " if not n["read"] else ""
+    col1, col2, col3, col4 = st.columns([0.07, 0.65, 0.14, 0.14])
+    with col1:
+        st.markdown(f"<div style='font-size:22px;line-height:1'>{cfg['icon']}</div>", unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"""
+        <div>
+          <div style='font-size:12px;font-weight:700;color:{C['text']}'>{unread_dot}{n['title']}</div>
+          <div style='font-size:11px;color:{C['textMuted']};line-height:1.4'>{n['body']}</div>
+          <div style='font-size:10px;color:{C['textMuted']};margin-top:2px'>{n['time']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        if not n["read"]:
+            if st.button("✓ Read", key=f"read_{n['id']}"):
+                for notif in st.session_state.notifs:
+                    if notif["id"] == n["id"]:
+                        notif["read"] = True
+                st.rerun()
+    with col4:
+        if st.button("✕", key=f"del_{n['id']}"):
+            st.session_state.notifs = [x for x in st.session_state.notifs if x["id"] != n["id"]]
+            st.rerun()
+    st.markdown(f"<hr style='border:none;border-top:1px solid {C['border']};margin:4px 0'>", unsafe_allow_html=True)
 
-        def animate_bar(step=0):
-            if step >= steps:
-                close(); return
-            try:
-                ratio = 1 - step / steps
-                bar_canvas.coords(bar_id, 0, 0, W * ratio, 3)
-                win.after(delay, animate_bar, step + 1)
-            except Exception:
-                pass
+# ─── Main tabs ────────────────────────────────────────────────────────────────
+tab_folders, tab_notifs = st.tabs(["📁  File Pockets", "🔔  Notifications"])
 
-        animate_bar()
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 1 – FOLDER POCKETS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_folders:
 
-    def _restack(self):
-        sh = self.root.winfo_screenheight()
-        sw = self.root.winfo_screenwidth()
-        W, H = 340, 80
-        for i, w in enumerate(self.toasts):
-            try:
-                y = sh - 60 - (H + 10) * (i + 1)
-                x = sw - W - 16
-                w.geometry(f"+{x}+{y}")
-            except Exception:
-                pass
+    # --- Search bar + New Folder button ---------------------------------------
+    sc1, sc2 = st.columns([4, 1])
+    with sc1:
+        search = st.text_input("", placeholder="🔍 Search files across all folders…",
+                               value=st.session_state.search, label_visibility="collapsed",
+                               key="search_input")
+        st.session_state.search = search
+    with sc2:
+        if st.button("➕ New Folder"):
+            st.session_state.show_new_folder = True
 
+    # --- New folder dialog -------------------------------------------------------
+    if st.session_state.show_new_folder:
+        with st.expander("✨ Create New Folder", expanded=True):
+            nf_col1, nf_col2 = st.columns(2)
+            with nf_col1:
+                nf_name = st.text_input("Folder Name", key="nf_name")
+                nf_icon = st.selectbox("Icon", FOLDER_ICONS, key="nf_icon")
+            with nf_col2:
+                nf_color = st.selectbox("Color", FOLDER_COLORS, key="nf_color")
+                if nf_name:
+                    st.markdown(
+                        f"<div style='padding:12px;background:{C['card']};border-radius:10px;"
+                        f"border:1px solid {nf_color}55;display:flex;align-items:center;gap:10px;'>"
+                        f"<span style='font-size:28px'>{nf_icon}</span>"
+                        f"<span style='font-weight:700;color:{C['text']}'>{nf_name}</span></div>",
+                        unsafe_allow_html=True)
+            btn_c1, btn_c2 = st.columns(2)
+            with btn_c1:
+                if st.button("✅ Create Folder", disabled=not nf_name.strip()):
+                    new_folder = {
+                        "id": f"f_{uuid.uuid4().hex[:8]}",
+                        "name": nf_name.strip(),
+                        "icon": nf_icon,
+                        "color": nf_color,
+                        "desc": ""
+                    }
+                    st.session_state.folders.append(new_folder)
+                    st.session_state.show_new_folder = False
+                    show_toast({"type": "success", "title": "Folder Created",
+                                "body": f'"{nf_name}" folder is ready.'})
+                    st.rerun()
+            with btn_c2:
+                if st.button("Cancel", key="cancel_nf"):
+                    st.session_state.show_new_folder = False
+                    st.rerun()
 
-# ─── Modal Dialog Helpers ─────────────────────────────────────────────────────
-class CenteredDialog(tk.Toplevel):
-    def __init__(self, parent, title, width=420, height=320):
-        super().__init__(parent)
-        self.title(title)
-        self.configure(bg=SURFACE)
-        self.resizable(False, False)
-        self.grab_set()
-        # Center
-        parent.update_idletasks()
-        px = parent.winfo_x() + parent.winfo_width() // 2 - width // 2
-        py = parent.winfo_y() + parent.winfo_height() // 2 - height // 2
-        self.geometry(f"{width}x{height}+{px}+{py}")
-
-
-class RenameDialog(CenteredDialog):
-    def __init__(self, parent, current_name, prompt="Rename:"):
-        super().__init__(parent, "Rename", 380, 160)
-        self.result = None
-
-        tk.Label(self, text=prompt, font=("Segoe UI", 11, "bold"),
-                 bg=SURFACE, fg=TEXT).pack(pady=(22, 8))
-
-        self.entry = tk.Entry(self, font=("Segoe UI", 11), bg=CARD, fg=TEXT,
-                              insertbackground=TEXT, relief="flat",
-                              highlightthickness=1, highlightcolor=ACCENT,
-                              highlightbackground=BORDER, width=32)
-        self.entry.pack(padx=24)
-        self.entry.insert(0, current_name)
-        self.entry.select_range(0, "end")
-        self.entry.focus_set()
-        self.entry.bind("<Return>", lambda e: self._save())
-        self.entry.bind("<Escape>", lambda e: self.destroy())
-
-        btn_row = tk.Frame(self, bg=SURFACE)
-        btn_row.pack(pady=18)
-        tk.Button(btn_row, text="Cancel", font=("Segoe UI", 9), bg=CARD, fg=MUTED,
-                  relief="flat", padx=16, pady=6, cursor="hand2",
-                  command=self.destroy).pack(side="left", padx=6)
-        tk.Button(btn_row, text="Save", font=("Segoe UI", 9, "bold"), bg=ACCENT, fg="#fff",
-                  relief="flat", padx=16, pady=6, cursor="hand2",
-                  command=self._save).pack(side="left", padx=6)
-
-    def _save(self):
-        val = self.entry.get().strip()
-        if val:
-            self.result = val
-            self.destroy()
-
-    @classmethod
-    def ask(cls, parent, current_name, prompt="Rename:"):
-        dlg = cls(parent, current_name, prompt)
-        parent.wait_window(dlg)
-        return dlg.result
-
-
-class NewFolderDialog(CenteredDialog):
-    ICONS   = ["📁","📂","📚","🗂","🔐","📝","🎯","📓","🗄","💼","🧪","🏆","🎮","🔬","📊"]
-    COLORS  = [ACCENT, SUCCESS, ERROR, WARNING, BIRTHDAY, TEAL, ORANGE, PURPLE]
-
-    def __init__(self, parent):
-        super().__init__(parent, "New Folder", 440, 370)
-        self.result = None
-        self._icon  = tk.StringVar(value="📁")
-        self._color = tk.StringVar(value=ACCENT)
-
-        tk.Label(self, text="New Folder", font=("Segoe UI", 13, "bold"),
-                 bg=SURFACE, fg=TEXT).pack(pady=(18, 12))
-
-        # Name
-        self.entry = tk.Entry(self, font=("Segoe UI", 11), bg=CARD, fg=TEXT,
-                              insertbackground=TEXT, relief="flat",
-                              highlightthickness=1, highlightcolor=ACCENT,
-                              highlightbackground=BORDER, width=34)
-        self.entry.pack(padx=24, pady=(0, 10))
-        self.entry.insert(0, "")
-        self.entry.focus_set()
-        self.entry.bind("<Return>", lambda e: self._save())
-
-        # Icons row
-        tk.Label(self, text="ICON", font=("Segoe UI", 8, "bold"),
-                 bg=SURFACE, fg=MUTED).pack(anchor="w", padx=26)
-        icon_row = tk.Frame(self, bg=SURFACE)
-        icon_row.pack(fill="x", padx=24, pady=(4, 10))
-        for ic in self.ICONS:
-            b = tk.Button(icon_row, text=ic, font=("Segoe UI Emoji", 14),
-                          bg=CARD, fg=TEXT, relief="flat", padx=4, pady=2,
-                          cursor="hand2",
-                          command=lambda i=ic: self._icon.set(i))
-            b.pack(side="left", padx=2)
-
-        # Colors row
-        tk.Label(self, text="COLOR", font=("Segoe UI", 8, "bold"),
-                 bg=SURFACE, fg=MUTED).pack(anchor="w", padx=26)
-        col_row = tk.Frame(self, bg=SURFACE)
-        col_row.pack(fill="x", padx=24, pady=(4, 14))
-        for col in self.COLORS:
-            b = tk.Button(col_row, bg=col, activebackground=col,
-                          width=2, height=1, relief="flat", cursor="hand2",
-                          command=lambda c=col: self._color.set(c))
-            b.pack(side="left", padx=4)
-
-        btn_row = tk.Frame(self, bg=SURFACE)
-        btn_row.pack()
-        tk.Button(btn_row, text="Cancel", font=("Segoe UI", 9), bg=CARD, fg=MUTED,
-                  relief="flat", padx=16, pady=6, cursor="hand2",
-                  command=self.destroy).pack(side="left", padx=6)
-        tk.Button(btn_row, text="Create Folder", font=("Segoe UI", 9, "bold"),
-                  bg=ACCENT, fg="#fff", relief="flat", padx=16, pady=6,
-                  cursor="hand2", command=self._save).pack(side="left", padx=6)
-
-    def _save(self):
-        name = self.entry.get().strip()
-        if not name:
-            self.entry.config(highlightbackground=ERROR)
-            return
-        self.result = {"id": make_id(), "name": name,
-                       "icon": self._icon.get(), "color": self._color.get(), "desc": ""}
-        self.destroy()
-
-    @classmethod
-    def ask(cls, parent):
-        dlg = cls(parent)
-        parent.wait_window(dlg)
-        return dlg.result
-
-
-# ─── Folder Pockets Tab ───────────────────────────────────────────────────────
-class FolderPocketsTab(tk.Frame):
-    def __init__(self, parent, toast_mgr, app):
-        super().__init__(parent, bg=BG)
-        self.toast_mgr = toast_mgr
-        self.app       = app
-        self.folders   = list(DEFAULT_FOLDERS)
-        self.files     = []          # [{id, name, src_path, size, folder_id, added_at}]
-        self._open_fid = None        # currently open folder id
-        self._sort     = "date"
-
-        self._build_toolbar()
-        self._scroll = ScrollFrame(self, bg=BG)
-        self._scroll.pack(fill="both", expand=True, padx=16, pady=(0, 16))
-        self._render()
-
-    # ── Toolbar ──
-    def _build_toolbar(self):
-        bar = tk.Frame(self, bg=BG)
-        bar.pack(fill="x", padx=16, pady=12)
-
-        tk.Label(bar, text="🔍", bg=BG, fg=MUTED, font=("Segoe UI Emoji", 12)).pack(side="left", padx=(0, 4))
-        self._search_var = tk.StringVar()
-        self._search_var.trace_add("write", lambda *_: self._render())
-        se = tk.Entry(bar, textvariable=self._search_var, font=("Segoe UI", 10),
-                      bg=CARD, fg=TEXT, insertbackground=TEXT, relief="flat",
-                      highlightthickness=1, highlightcolor=ACCENT,
-                      highlightbackground=BORDER, width=36)
-        se.pack(side="left", ipady=5, padx=(0, 10))
-
-        tk.Button(bar, text="+ New Folder", font=("Segoe UI", 9, "bold"),
-                  bg=ACCENT, fg="#fff", relief="flat", padx=12, pady=5,
-                  cursor="hand2", command=self._new_folder).pack(side="left")
-
-        self._back_btn = tk.Button(bar, text="← Folders", font=("Segoe UI", 9),
-                                   bg=CARD, fg=MUTED, relief="flat", padx=12, pady=5,
-                                   cursor="hand2", command=self._go_back)
-        # Shown only when inside a folder
-
-        self._upload_btn = tk.Button(bar, text="📤 Upload Files", font=("Segoe UI", 9, "bold"),
-                                     bg=CARD, fg=TEXT, relief="flat", padx=12, pady=5,
-                                     cursor="hand2", command=self._upload_files)
-
-    def _go_back(self):
-        self._open_fid = None
-        self._back_btn.pack_forget()
-        self._upload_btn.pack_forget()
-        self._render()
-
-    # ── Main render ──
-    def _render(self):
-        for w in self._scroll.inner.winfo_children():
-            w.destroy()
-
-        query = self._search_var.get().strip().lower()
-
-        if query:
-            self._render_search(query)
-        elif self._open_fid:
-            self._render_folder_view()
+    # --- Search results view --------------------------------------------------
+    if search.strip():
+        matches = [f for f in st.session_state.files
+                   if search.lower() in f["name"].lower()]
+        st.markdown(f"<div style='color:{C['textMuted']};font-size:12px;margin-bottom:8px'>"
+                    f"{len(matches)} result{'s' if len(matches)!=1 else ''} for \"{search}\"</div>",
+                    unsafe_allow_html=True)
+        if not matches:
+            st.info("No files found.")
         else:
-            self._render_folder_grid()
+            cols = st.columns(4)
+            for i, f in enumerate(matches):
+                folder = next((fo for fo in st.session_state.folders if fo["id"] == f["folderId"]), None)
+                fc = folder["color"] if folder else C["accent"]
+                with cols[i % 4]:
+                    st.markdown(f"""
+                    <div style="background:{C['card']};border:1px solid {fc}55;border-radius:12px;
+                                padding:12px;text-align:center;">
+                      <div style="font-size:32px">{file_icon(f['name'])}</div>
+                      <div style="font-size:11px;font-weight:700;color:{C['text']};
+                                  overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                           title="{f['name']}">{f['name']}</div>
+                      <div style="font-size:9px;color:{C['textMuted']}">{fmt_size(f['size'])}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("✕ Remove", key=f"srch_del_{f['id']}"):
+                        st.session_state.files = [x for x in st.session_state.files if x["id"] != f["id"]]
+                        st.rerun()
+        st.stop()
 
-    def _render_folder_grid(self):
-        self._back_btn.pack_forget()
-        self._upload_btn.pack_forget()
-        inner = self._scroll.inner
-
-        summary = tk.Label(inner,
-                           text=f"{len(self.folders)} folders  ·  {len(self.files)} files total",
-                           font=("Segoe UI", 8), bg=BG, fg=MUTED)
-        summary.pack(anchor="w", pady=(6, 10))
-
-        grid = tk.Frame(inner, bg=BG)
-        grid.pack(fill="x")
-
-        COLS = 4
-        for i, folder in enumerate(self.folders):
-            fc = len([f for f in self.files if f["folder_id"] == folder["id"]])
-            card = self._make_folder_card(grid, folder, fc)
-            card.grid(row=i // COLS, column=i % COLS, padx=8, pady=8, sticky="nsew")
-
-        for c in range(COLS):
-            grid.columnconfigure(c, weight=1)
-
-    def _make_folder_card(self, parent, folder, file_count):
-        frm = tk.Frame(parent, bg=CARD, cursor="hand2",
-                       highlightthickness=1, highlightbackground=BORDER)
-        frm.bind("<Enter>", lambda e: frm.config(highlightbackground=folder["color"]))
-        frm.bind("<Leave>", lambda e: frm.config(highlightbackground=BORDER))
-        frm.bind("<Button-1>", lambda e: self._open_folder(folder["id"]))
-
-        tk.Label(frm, text=folder["icon"], font=("Segoe UI Emoji", 26),
-                 bg=CARD, fg=TEXT).pack(anchor="w", padx=14, pady=(14, 4))
-        tk.Label(frm, text=folder["name"], font=("Segoe UI", 11, "bold"),
-                 bg=CARD, fg=TEXT).pack(anchor="w", padx=14)
-        if folder.get("desc"):
-            tk.Label(frm, text=folder["desc"], font=("Segoe UI", 8),
-                     bg=CARD, fg=MUTED, wraplength=150).pack(anchor="w", padx=14, pady=(2, 8))
-
-        bottom = tk.Frame(frm, bg=CARD)
-        bottom.pack(fill="x", padx=14, pady=(4, 10))
-        tk.Label(bottom, text=f"{file_count} file{'s' if file_count != 1 else ''}",
-                 font=("Segoe UI", 8, "bold"), bg=CARD,
-                 fg=folder["color"]).pack(side="left")
-
-        # Menu
-        menu = tk.Menu(frm, tearoff=0, bg=SURFACE, fg=TEXT, activebackground=HOVER,
-                       activeforeground=TEXT, bd=0)
-        menu.add_command(label="✏  Rename",
-                         command=lambda fid=folder["id"]: self._rename_folder(fid))
-        menu.add_command(label="🗑  Delete",
-                         command=lambda fid=folder["id"]: self._delete_folder(fid))
-
-        def show_menu(e, m=menu):
-            m.tk_popup(e.x_root, e.y_root)
-
-        dots = tk.Label(frm, text="⋯", font=("Segoe UI", 14), bg=CARD, fg=MUTED, cursor="hand2")
-        dots.place(relx=1, x=-12, y=10, anchor="ne")
-        dots.bind("<Button-1>", show_menu)
-
-        return frm
-
-    def _open_folder(self, folder_id):
-        self._open_fid = folder_id
-        self._back_btn.pack(side="left", padx=(10, 0))
-        self._upload_btn.pack(side="left", padx=(6, 0))
-        self._render()
-
-    def _render_folder_view(self):
-        folder = next((f for f in self.folders if f["id"] == self._open_fid), None)
+    # --- Open a specific folder -----------------------------------------------
+    if st.session_state.open_folder:
+        folder = next((fo for fo in st.session_state.folders
+                       if fo["id"] == st.session_state.open_folder), None)
         if not folder:
-            self._go_back(); return
+            st.session_state.open_folder = None
+            st.rerun()
 
-        inner = self._scroll.inner
+        # breadcrumb back button
+        if st.button(f"← Back to All Folders"):
+            st.session_state.open_folder = None
+            st.rerun()
 
-        # Breadcrumb label
-        bc = tk.Label(inner, text=f"{folder['icon']} {folder['name']}",
-                      font=("Segoe UI", 13, "bold"), bg=BG, fg=folder["color"])
-        bc.pack(anchor="w", pady=(6, 12))
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 0 8px">
+          <span style="font-size:36px">{folder['icon']}</span>
+          <div>
+            <div style="font-size:18px;font-weight:900;color:{C['text']}">{folder['name']}</div>
+            <div style="font-size:11px;color:{C['textMuted']}">{folder.get('desc','')}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # Drop zone
-        dz = tk.Frame(inner, bg=CARD, height=90,
-                      highlightthickness=2, highlightbackground=BORDER)
-        dz.pack(fill="x", pady=(0, 14))
-        dz.pack_propagate(False)
-        dz_lbl = tk.Label(dz, text="📤  Click 'Upload Files' or drag & drop here",
-                          font=("Segoe UI", 10), bg=CARD, fg=MUTED)
-        dz_lbl.place(relx=0.5, rely=0.5, anchor="center")
-        dz.bind("<Enter>", lambda e: dz.config(highlightbackground=folder["color"]))
-        dz.bind("<Leave>", lambda e: dz.config(highlightbackground=BORDER))
-        dz.bind("<Button-1>", lambda e: self._upload_files())
+        # Rename folder inline
+        rfcol1, rfcol2 = st.columns([3, 1])
+        with rfcol2:
+            with st.popover("✏️ Rename Folder"):
+                new_name = st.text_input("New name", value=folder["name"], key="rf_input")
+                if st.button("Save Name"):
+                    for fo in st.session_state.folders:
+                        if fo["id"] == folder["id"]:
+                            fo["name"] = new_name.strip() or fo["name"]
+                    st.rerun()
 
-        # Sort bar
-        ctrl = tk.Frame(inner, bg=BG)
-        ctrl.pack(fill="x", pady=(0, 8))
-        folder_files = [f for f in self.files if f["folder_id"] == self._open_fid]
-        tk.Label(ctrl, text=f"{len(folder_files)} file{'s' if len(folder_files) != 1 else ''}",
-                 font=("Segoe UI", 9), bg=BG, fg=MUTED).pack(side="left")
-        for s, lbl in [("date", "Date"), ("name", "Name")]:
-            active = self._sort == s
-            b = tk.Button(ctrl, text=lbl, font=("Segoe UI", 8, "bold"),
-                          bg=ACCENT if active else CARD,
-                          fg="#fff" if active else MUTED,
-                          relief="flat", padx=8, pady=3, cursor="hand2",
-                          command=lambda sv=s: self._set_sort(sv))
-            b.pack(side="right", padx=3)
+        # File uploader
+        uploaded = st.file_uploader(
+            "Upload files (drag & drop or click to browse)",
+            accept_multiple_files=True,
+            key=f"uploader_{folder['id']}"
+        )
+        if uploaded:
+            added = 0
+            for uf in uploaded:
+                existing_ids = {f["id"] for f in st.session_state.files}
+                fid = f"file_{uuid.uuid4().hex[:8]}"
+                data = uf.read()
+                new_file = {
+                    "id": fid,
+                    "name": uf.name,
+                    "size": len(data),
+                    "folderId": folder["id"],
+                    "addedAt": datetime.now().isoformat(),
+                    "data": data,
+                }
+                st.session_state.files.append(new_file)
+                added += 1
+            if added:
+                show_toast({"type": "success", "title": f"{added} File(s) Uploaded",
+                            "body": f"Added to {folder['name']}."})
+                st.rerun()
 
-        # File grid
-        if self._sort == "name":
-            folder_files.sort(key=lambda f: f["name"].lower())
-        else:
-            folder_files.sort(key=lambda f: f["added_at"], reverse=True)
-
-        if not folder_files:
-            tk.Label(inner, text=f"{folder['icon']}\nThis folder is empty.\nUpload your first file above.",
-                     font=("Segoe UI", 10), bg=BG, fg=MUTED, justify="center").pack(pady=30)
-            return
-
-        grid = tk.Frame(inner, bg=BG)
-        grid.pack(fill="x")
-        COLS = 5
-        for i, f in enumerate(folder_files):
-            card = self._make_file_card(grid, f, folder["color"])
-            card.grid(row=i // COLS, column=i % COLS, padx=6, pady=6, sticky="nsew")
-        for c in range(COLS):
-            grid.columnconfigure(c, weight=1)
-
-    def _set_sort(self, s):
-        self._sort = s
-        self._render()
-
-    def _make_file_card(self, parent, file_data, folder_color):
-        frm = tk.Frame(parent, bg=CARD, cursor="hand2",
-                       highlightthickness=1, highlightbackground=BORDER, width=130)
-        frm.pack_propagate(False)
-        frm.bind("<Enter>", lambda e: frm.config(highlightbackground=folder_color))
-        frm.bind("<Leave>", lambda e: frm.config(highlightbackground=BORDER))
-
-        # Thumbnail area
-        thumb = tk.Frame(frm, bg=HOVER, height=70)
-        thumb.pack(fill="x")
-        thumb.pack_propagate(False)
-        tk.Label(thumb, text=file_icon(file_data["name"]),
-                 font=("Segoe UI Emoji", 24), bg=HOVER).place(relx=0.5, rely=0.5, anchor="center")
-        thumb.bind("<Button-1>", lambda e, fd=file_data: self._open_file(fd))
-
-        # Name
-        name_lbl = tk.Label(frm, text=file_data["name"], font=("Segoe UI", 8, "bold"),
-                            bg=CARD, fg=TEXT, anchor="w",
-                            width=16, cursor="hand2")
-        name_lbl.pack(fill="x", padx=6, pady=(6, 1))
-        name_lbl.bind("<Button-1>", lambda e, fd=file_data: self._open_file(fd))
-
-        tk.Label(frm, text=fmt_size(file_data["size"]), font=("Segoe UI", 7),
-                 bg=CARD, fg=MUTED, anchor="w").pack(fill="x", padx=6)
-
-        btn_row = tk.Frame(frm, bg=CARD)
-        btn_row.pack(fill="x", padx=5, pady=5)
-        tk.Button(btn_row, text="✏", font=("Segoe UI", 9), bg=HOVER, fg=MUTED,
-                  relief="flat", padx=4, pady=2, cursor="hand2",
-                  command=lambda fd=file_data: self._rename_file(fd)).pack(side="left", padx=2)
-        tk.Button(btn_row, text="✕", font=("Segoe UI", 9), bg=HOVER, fg=ERROR,
-                  relief="flat", padx=4, pady=2, cursor="hand2",
-                  command=lambda fd=file_data: self._delete_file(fd)).pack(side="left", padx=2)
-        tk.Button(btn_row, text="⤤", font=("Segoe UI", 9), bg=HOVER, fg=SUBTLE,
-                  relief="flat", padx=4, pady=2, cursor="hand2",
-                  command=lambda fd=file_data: self._open_file(fd)).pack(side="left", padx=2)
-
-        return frm
-
-    def _render_search(self, query):
-        inner = self._scroll.inner
-        results = [f for f in self.files if query in f["name"].lower()]
-        tk.Label(inner, text=f"{len(results)} result{'s' if len(results) != 1 else ''} for \"{query}\"",
-                 font=("Segoe UI", 9), bg=BG, fg=MUTED).pack(anchor="w", pady=(6, 10))
-        if not results:
-            tk.Label(inner, text="No files found.", font=("Segoe UI", 10),
-                     bg=BG, fg=MUTED).pack(pady=20)
-            return
-        grid = tk.Frame(inner, bg=BG)
-        grid.pack(fill="x")
-        COLS = 5
-        for i, f in enumerate(results):
-            folder = next((fo for fo in self.folders if fo["id"] == f["folder_id"]), None)
-            color  = folder["color"] if folder else ACCENT
-            card = self._make_file_card(grid, f, color)
-            card.grid(row=i // COLS, column=i % COLS, padx=6, pady=6, sticky="nsew")
-        for c in range(COLS):
-            grid.columnconfigure(c, weight=1)
-
-    # ── Actions ──
-    def _upload_files(self):
-        if not self._open_fid:
-            messagebox.showinfo("Open a Folder", "Please open a folder first, then upload files.")
-            return
-        paths = filedialog.askopenfilenames(title="Select files to upload")
-        if not paths:
-            return
-        for p in paths:
-            p = Path(p)
-            entry = {
-                "id":        make_id(),
-                "name":      p.name,
-                "src_path":  str(p),
-                "size":      p.stat().st_size,
-                "folder_id": self._open_fid,
-                "added_at":  time.time(),
-            }
-            self.files.append(entry)
-        folder = next((f for f in self.folders if f["id"] == self._open_fid), None)
-        self.toast_mgr.show(f"{len(paths)} file{'s' if len(paths)>1 else ''} uploaded",
-                            f"Added to {folder['name'] if folder else 'folder'}.", "success")
-        self.app._add_notif({"type": "success",
-                             "title": "Files Uploaded",
-                             "body": f"{len(paths)} file(s) added to {folder['name'] if folder else 'folder'}."})
-        self._render()
-
-    def _rename_file(self, file_data):
-        new_name = RenameDialog.ask(self, file_data["name"], "New file name:")
-        if new_name:
-            file_data["name"] = new_name
-            self.toast_mgr.show("File Renamed", f"Renamed to \"{new_name}\"", "success")
-            self._render()
-
-    def _delete_file(self, file_data):
-        if messagebox.askyesno("Delete File", f"Delete \"{file_data['name']}\"?"):
-            self.files = [f for f in self.files if f["id"] != file_data["id"]]
-            self.toast_mgr.show("File Deleted", file_data["name"], "info")
-            self._render()
-
-    def _open_file(self, file_data):
-        p = file_data.get("src_path", "")
-        if p and os.path.exists(p):
-            os.startfile(p) if os.name == "nt" else os.system(f'xdg-open "{p}" &')
-        else:
-            messagebox.showinfo("File Preview", f"File: {file_data['name']}\nSize: {fmt_size(file_data['size'])}\n\nSource file path not available for preview.")
-
-    def _new_folder(self):
-        result = NewFolderDialog.ask(self)
-        if result:
-            self.folders.append(result)
-            self.toast_mgr.show("Folder Created", f"\"{result['name']}\" is ready.", "success")
-            self._render()
-
-    def _rename_folder(self, folder_id):
-        folder = next((f for f in self.folders if f["id"] == folder_id), None)
-        if not folder: return
-        new_name = RenameDialog.ask(self, folder["name"], "New folder name:")
-        if new_name:
-            folder["name"] = new_name
-            self._render()
-
-    def _delete_folder(self, folder_id):
-        folder = next((f for f in self.folders if f["id"] == folder_id), None)
-        if not folder: return
-        fc = len([f for f in self.files if f["folder_id"] == folder_id])
-        msg = f"Delete folder \"{folder['name']}\"?"
-        if fc:
-            msg += f"\nThis will also remove {fc} file record(s)."
-        if messagebox.askyesno("Delete Folder", msg):
-            self.folders = [f for f in self.folders if f["id"] != folder_id]
-            self.files   = [f for f in self.files   if f["folder_id"] != folder_id]
-            if self._open_fid == folder_id:
-                self._go_back()
+        # Sort controls
+        folder_files = [f for f in st.session_state.files if f["folderId"] == folder["id"]]
+        if folder_files:
+            sort_col1, sort_col2 = st.columns([3, 1])
+            with sort_col2:
+                sort_by = st.selectbox("Sort by", ["Date", "Name"], key=f"sort_{folder['id']}",
+                                       label_visibility="collapsed")
+            if sort_by == "Name":
+                folder_files = sorted(folder_files, key=lambda f: f["name"])
             else:
-                self._render()
+                folder_files = sorted(folder_files, key=lambda f: f["addedAt"], reverse=True)
 
+            with sort_col1:
+                st.markdown(f"<div style='color:{C['textMuted']};font-size:11px;padding-top:8px'>"
+                            f"{len(folder_files)} file(s)</div>", unsafe_allow_html=True)
 
-# ─── Notifications Tab ────────────────────────────────────────────────────────
-class NotificationsTab(tk.Frame):
-    def __init__(self, parent, toast_mgr, app):
-        super().__init__(parent, bg=BG)
-        self.toast_mgr = toast_mgr
-        self.app = app
-        self._build()
+            cols = st.columns(4)
+            for i, f in enumerate(folder_files):
+                with cols[i % 4]:
+                    st.markdown(f"""
+                    <div style="background:{C['card']};border:1px solid {folder['color']}44;
+                                border-radius:12px;overflow:hidden;margin-bottom:8px">
+                      <div style="height:70px;display:flex;align-items:center;justify-content:center;
+                                  background:{folder['color']}10;font-size:32px;
+                                  border-bottom:1px solid {C['border']}">{file_icon(f['name'])}</div>
+                      <div style="padding:8px">
+                        <div style="font-size:11px;font-weight:700;color:{C['text']};
+                                    overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                             title="{f['name']}">{f['name']}</div>
+                        <div style="font-size:9px;color:{C['textMuted']};margin-bottom:6px">{fmt_size(f['size'])}</div>
+                      </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-    def _build(self):
-        # Left: trigger buttons  |  Right: history
-        panes = tk.Frame(self, bg=BG)
-        panes.pack(fill="both", expand=True, padx=16, pady=12)
+                    # View / Download
+                    is_img = f["name"].rsplit(".", 1)[-1].lower() in {"png","jpg","jpeg","gif","webp","svg"}
+                    is_text = f["name"].rsplit(".", 1)[-1].lower() in {"txt","md","csv","json","js","py","html","css"}
+                    if is_img or is_text:
+                        with st.popover("👁 View"):
+                            if is_img:
+                                st.image(f["data"], caption=f["name"])
+                            else:
+                                st.code(f["data"].decode("utf-8", errors="replace"),
+                                        language=f["name"].rsplit(".",1)[-1] if "." in f["name"] else "text")
+                    else:
+                        st.download_button("⬇ Download", data=f["data"], file_name=f["name"],
+                                           key=f"dl_{f['id']}")
 
-        left = tk.Frame(panes, bg=BG, width=320)
-        left.pack(side="left", fill="y", padx=(0, 12))
-        left.pack_propagate(False)
+                    # Rename
+                    with st.popover("✏️ Rename"):
+                        new_fn = st.text_input("New filename", value=f["name"], key=f"ren_{f['id']}")
+                        if st.button("Save", key=f"saveren_{f['id']}"):
+                            for fi in st.session_state.files:
+                                if fi["id"] == f["id"]:
+                                    fi["name"] = new_fn.strip() or fi["name"]
+                            show_toast({"type": "success", "title": "File Renamed",
+                                        "body": f'Renamed to "{new_fn}"'})
+                            st.rerun()
 
-        right_outer = tk.Frame(panes, bg=BG)
-        right_outer.pack(side="left", fill="both", expand=True)
-
-        self._build_triggers(left)
-        self._build_history(right_outer)
-
-    def _build_triggers(self, parent):
-        scroll = ScrollFrame(parent, bg=BG)
-        scroll.pack(fill="both", expand=True)
-        inner = scroll.inner
-
-        def section(title, color, items):
-            hdr = tk.Frame(inner, bg=SURFACE,
-                           highlightthickness=1, highlightbackground=BORDER)
-            hdr.pack(fill="x", pady=(6, 0))
-            tk.Label(hdr, text=title, font=("Segoe UI", 8, "bold"),
-                     bg=SURFACE, fg=color, anchor="w").pack(fill="x", padx=12, pady=6)
-            body = tk.Frame(inner, bg=BG)
-            body.pack(fill="x", pady=(0, 6))
-            for lbl, ntype, data in items:
-                self._trig_btn(body, lbl, ntype, data)
-
-        section("✓  SUCCESS", SUCCESS, [
-            ("Note Saved Successfully", "success",
-             {"title": "Note Saved Successfully", "body": "Study notes for Chapter 7 saved."}),
-            ("Assignment Submitted", "success",
-             {"title": "Assignment Submitted", "body": "Physics assignment submitted at 11:45 PM."}),
-            ("Password Added", "success",
-             {"title": "Password Added", "body": "Credential for 'College Portal' saved."}),
-            ("Show as Modal ⊞", "success",
-             {"title": "File Uploaded ✅", "body": "Document saved to Assignments folder.", "_modal": True}),
-        ])
-        section("✕  ERROR", ERROR, [
-            ("Invalid Login Credentials", "error",
-             {"title": "Invalid Login Credentials", "body": "Check your username and password."}),
-            ("Failed to Save Data", "error",
-             {"title": "Failed to Save", "body": "Network timeout. Changes not saved."}),
-            ("Show as Modal ⊞", "error",
-             {"title": "Login Failed", "body": "Invalid credentials. Reset your password.", "_modal": True}),
-        ])
-        section("⚠  WARNING", WARNING, [
-            ("Assignment Due Tomorrow", "warning",
-             {"title": "Assignment Due Tomorrow", "body": "Maths Assignment 3 due at 11:59 PM."}),
-            ("Exam in 2 Days", "warning",
-             {"title": "Exam in 2 Days", "body": "Physics Unit Test — Thursday 9 AM."}),
-            ("Show as Modal ⊞", "warning",
-             {"title": "Deadline in 2 Hours!", "body": "Submit your assignment before 6 PM.", "_modal": True}),
-        ])
-        section("ℹ  INFO", INFO, [
-            ("New Update Available", "info",
-             {"title": "New Update Available", "body": "v2.4.1 — improved timetable sync."}),
-            ("Timetable Updated", "info",
-             {"title": "Timetable Updated", "body": "Wednesday's lab moved to Room 204."}),
-        ])
-        section("🔔  REMINDERS", WARNING, [
-            ("Good Morning! 3 Classes", "reminder",
-             {"title": "Good Morning! ☀️", "body": "3 classes today. First at 9:00 AM."}),
-            ("Deadline in 4 Hours", "deadline",
-             {"title": "Deadline in 4 Hours ⏰", "body": "Network Security — submit before 6 PM."}),
-            ("AFCAT Session at 6 PM", "reminder",
-             {"title": "AFCAT Study Session 📚", "body": "Study session at 6 PM tonight."}),
-            ("Log Your Mood", "reminder",
-             {"title": "Log Your Mood 💭", "body": "You haven't logged your mood today."}),
-        ])
-        section("🎉  SPECIAL", BIRTHDAY, [
-            ("Birthday — Priya 🎂", "birthday",
-             {"title": "Today is Priya's Birthday 🎂", "body": "Don't forget to wish her!", "_modal": True}),
-            ("Exam Alert — AFCAT", "exam",
-             {"title": "Exam Starting Soon 📝", "body": "AFCAT mock test in 30 minutes!"}),
-        ])
-        section("⚡  QUICK FIRE", ACCENT, [
-            ("Fire 5 Random Notifications", "info",
-             {"_random5": True}),
-        ])
-
-    def _trig_btn(self, parent, label, ntype, data):
-        cfg = TYPE_CFG.get(ntype, TYPE_CFG["info"])
-
-        def fire(d=data):
-            if d.get("_random5"):
-                import random
-                picks = random.sample(DEMO_NOTIFS, 5)
-                for i, n in enumerate(picks):
-                    self.after(i * 600, lambda nd=n: self.app._add_notif(nd, toast=True))
-                return
-            nd = {k: v for k, v in d.items() if not k.startswith("_")}
-            nd["type"] = ntype
-            modal = d.get("_modal", False)
-            self.app._add_notif(nd, toast=True, modal=modal)
-
-        frm = tk.Frame(parent, bg=BG)
-        frm.pack(fill="x", padx=6, pady=2)
-
-        def on_enter(e):
-            btn.config(bg=cfg["bg"], fg=cfg["color"],
-                       highlightbackground=cfg["color"])
-
-        def on_leave(e):
-            btn.config(bg=BG, fg=MUTED, highlightbackground=BORDER)
-
-        btn = tk.Button(frm, text=f"{cfg['icon']}  {label}",
-                        font=("Segoe UI", 9), bg=BG, fg=MUTED,
-                        relief="flat", anchor="w", padx=10, pady=6,
-                        cursor="hand2", highlightthickness=1,
-                        highlightbackground=BORDER,
-                        command=fire)
-        btn.pack(fill="x")
-        btn.bind("<Enter>", on_enter)
-        btn.bind("<Leave>", on_leave)
-
-    def _build_history(self, parent):
-        hdr = tk.Frame(parent, bg=BG)
-        hdr.pack(fill="x", pady=(0, 8))
-
-        tk.Label(hdr, text="Notification History", font=("Segoe UI", 12, "bold"),
-                 bg=BG, fg=TEXT).pack(side="left")
-
-        tk.Button(hdr, text="Mark all read", font=("Segoe UI", 8, "bold"),
-                  bg=BG, fg=ACCENT, relief="flat", cursor="hand2",
-                  command=self.app._mark_all_read).pack(side="right", padx=4)
-        tk.Button(hdr, text="Clear all", font=("Segoe UI", 8, "bold"),
-                  bg=BG, fg=ERROR, relief="flat", cursor="hand2",
-                  command=self.app._clear_all_notifs).pack(side="right", padx=4)
-
-        self.history_scroll = ScrollFrame(parent, bg=BG)
-        self.history_scroll.pack(fill="both", expand=True)
-        self.history_inner = self.history_scroll.inner
-
-    def refresh_history(self, notifs):
-        for w in self.history_inner.winfo_children():
-            w.destroy()
-
-        if not notifs:
-            tk.Label(self.history_inner, text="🎉  All caught up! No notifications.",
-                     font=("Segoe UI", 10), bg=BG, fg=MUTED).pack(pady=30)
-            return
-
-        for n in notifs:
-            self._history_item(self.history_inner, n)
-
-    def _history_item(self, parent, n):
-        cfg = TYPE_CFG.get(n["type"], TYPE_CFG["info"])
-        frm = tk.Frame(parent, bg=CARD if not n["read"] else SURFACE,
-                       highlightthickness=1, highlightbackground=BORDER)
-        frm.pack(fill="x", pady=2)
-
-        # Color strip
-        strip = tk.Frame(frm, bg=cfg["color"], width=4)
-        strip.pack(side="left", fill="y")
-
-        # Icon
-        tk.Label(frm, text=cfg["icon"], font=("Segoe UI Emoji", 14),
-                 bg=cfg["bg"], fg=cfg["color"], width=3, pady=10).pack(side="left")
-
-        # Text
-        txt = tk.Frame(frm, bg=frm["bg"])
-        txt.pack(side="left", fill="both", expand=True, padx=10, pady=8)
-
-        title_row = tk.Frame(txt, bg=frm["bg"])
-        title_row.pack(fill="x")
-        if not n["read"]:
-            tk.Label(title_row, text="●", font=("Segoe UI", 8),
-                     bg=frm["bg"], fg=cfg["color"]).pack(side="left")
-        tk.Label(title_row, text=n["title"], font=("Segoe UI", 10, "bold"),
-                 bg=frm["bg"], fg=TEXT).pack(side="left")
-
-        tk.Label(txt, text=n["body"], font=("Segoe UI", 9),
-                 bg=frm["bg"], fg=MUTED, anchor="w", wraplength=380).pack(fill="x")
-        tk.Label(txt, text=n["time"], font=("Segoe UI", 7),
-                 bg=frm["bg"], fg=MUTED, anchor="w").pack(fill="x")
-
-        # Actions
-        acts = tk.Frame(frm, bg=frm["bg"])
-        acts.pack(side="right", padx=8)
-        if not n["read"]:
-            tk.Button(acts, text="✓", font=("Segoe UI", 8), bg=HOVER, fg=MUTED,
-                      relief="flat", padx=4, pady=2, cursor="hand2",
-                      command=lambda nid=n["id"]: self.app._mark_read(nid)).pack(pady=2)
-        tk.Button(acts, text="✕", font=("Segoe UI", 8), bg=HOVER, fg=ERROR,
-                  relief="flat", padx=4, pady=2, cursor="hand2",
-                  command=lambda nid=n["id"]: self.app._delete_notif(nid)).pack(pady=2)
-
-
-# ─── Modal Alert Window ───────────────────────────────────────────────────────
-class ModalAlert(CenteredDialog):
-    def __init__(self, parent, notif):
-        cfg = TYPE_CFG.get(notif["type"], TYPE_CFG["info"])
-        super().__init__(parent, cfg["label"], 400, 280)
-        self.configure(bg=SURFACE)
-
-        tk.Label(self, text=cfg["icon"], font=("Segoe UI Emoji", 36),
-                 bg=cfg["bg"], fg=cfg["color"],
-                 width=4, pady=12).pack(pady=(24, 8))
-        tk.Label(self, text=cfg["label"].upper(), font=("Segoe UI", 8, "bold"),
-                 bg=SURFACE, fg=cfg["color"], letterSpacing=2).pack()
-        tk.Label(self, text=notif["title"], font=("Segoe UI", 13, "bold"),
-                 bg=SURFACE, fg=TEXT).pack(pady=(6, 4))
-        tk.Label(self, text=notif["body"], font=("Segoe UI", 10),
-                 bg=SURFACE, fg=MUTED, wraplength=340).pack()
-        tk.Button(self, text="Got it", font=("Segoe UI", 10, "bold"),
-                  bg=cfg["color"], fg="#fff", relief="flat",
-                  padx=28, pady=8, cursor="hand2",
-                  command=self.destroy).pack(pady=20)
-
-
-# ─── Main Application Window ──────────────────────────────────────────────────
-class PocketHubApp(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("PocketHub — Files · Folders · Notifications")
-        self.configure(bg=BG)
-        self.geometry("1100x720")
-        self.minsize(900, 600)
-
-        self._notifs = []
-        self._stats  = {"total": 0, "success": 0, "error": 0, "warning": 0}
-
-        self.toast_mgr = ToastManager(self)
-        self._build_ui()
-
-    def _build_ui(self):
-        # ── Header ──
-        hdr = tk.Frame(self, bg=SURFACE, height=58,
-                       highlightthickness=1, highlightbackground=BORDER)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-
-        # Logo
-        logo_frm = tk.Frame(hdr, bg=SURFACE)
-        logo_frm.pack(side="left", padx=16, pady=8)
-        tk.Label(logo_frm, text="🗂", font=("Segoe UI Emoji", 18),
-                 bg=ACCENT, padx=6, pady=4).pack(side="left")
-        t = tk.Frame(logo_frm, bg=SURFACE)
-        t.pack(side="left", padx=8)
-        tk.Label(t, text="PocketHub", font=("Segoe UI", 13, "bold"),
-                 bg=SURFACE, fg=TEXT).pack(anchor="w")
-        tk.Label(t, text="Files · Folders · Notifications", font=("Segoe UI", 7),
-                 bg=SURFACE, fg=MUTED).pack(anchor="w")
-
-        # Tab buttons
-        self._tab_var = tk.StringVar(value="folders")
-        tab_frm = tk.Frame(hdr, bg=CARD,
-                           highlightthickness=1, highlightbackground=BORDER)
-        tab_frm.pack(side="left", padx=20, pady=10)
-        for tid, tlbl in [("folders", "📁  File Pockets"), ("notifications", "🔔  Notifications")]:
-            b = tk.Button(tab_frm, text=tlbl, font=("Segoe UI", 9, "bold"),
-                          relief="flat", padx=14, pady=6, cursor="hand2",
-                          command=lambda t=tid: self._switch_tab(t))
-            b.pack(side="left", padx=2, pady=2)
-            b.config(bg=ACCENT if tid == "folders" else CARD,
-                     fg="#fff" if tid == "folders" else MUTED)
-            setattr(self, f"_tab_btn_{tid}", b)
-
-        # Stats bar (right)
-        stats_frm = tk.Frame(hdr, bg=SURFACE)
-        stats_frm.pack(side="right", padx=16)
-        self._stat_labels = {}
-        for key, icon, color in [("total","📊",ACCENT),("success","✓",SUCCESS),
-                                  ("error","✕",ERROR),("warning","⚠",WARNING)]:
-            sf = tk.Frame(stats_frm, bg=SURFACE)
-            sf.pack(side="left", padx=8, pady=4)
-            tk.Label(sf, text=icon, font=("Segoe UI Emoji", 9), bg=SURFACE, fg=color).pack(side="left")
-            lbl = tk.Label(sf, text="0", font=("Segoe UI", 11, "bold"), bg=SURFACE, fg=color)
-            lbl.pack(side="left", padx=2)
-            self._stat_labels[key] = lbl
-
-        # Bell
-        self._bell_btn = tk.Button(hdr, text="🔔", font=("Segoe UI Emoji", 14),
-                                   bg=SURFACE, fg=TEXT, relief="flat",
-                                   padx=8, pady=4, cursor="hand2",
-                                   command=self._toggle_bell_panel)
-        self._bell_btn.pack(side="right", padx=4, pady=8)
-        self._unread_badge = tk.Label(hdr, text="", font=("Segoe UI", 7, "bold"),
-                                      bg=ERROR, fg="#fff",
-                                      padx=4, pady=1)
-
-        # ── Content area ──
-        self._content = tk.Frame(self, bg=BG)
-        self._content.pack(fill="both", expand=True)
-
-        self._folders_tab = FolderPocketsTab(self._content, self.toast_mgr, self)
-        self._notifs_tab  = NotificationsTab(self._content, self.toast_mgr, self)
-
-        self._current_tab = "folders"
-        self._folders_tab.pack(fill="both", expand=True)
-
-        # Bell panel (hidden by default)
-        self._bell_panel_visible = False
-        self._bell_panel = self._create_bell_panel()
-
-    def _switch_tab(self, tab_id):
-        if tab_id == self._current_tab:
-            return
-        self._current_tab = tab_id
-        for tid in ["folders", "notifications"]:
-            btn = getattr(self, f"_tab_btn_{tid}")
-            btn.config(bg=ACCENT if tid == tab_id else CARD,
-                       fg="#fff" if tid == tab_id else MUTED)
-        self._folders_tab.pack_forget()
-        self._notifs_tab.pack_forget()
-        if tab_id == "folders":
-            self._folders_tab.pack(fill="both", expand=True)
+                    # Delete
+                    if st.button("🗑 Delete", key=f"fdel_{f['id']}"):
+                        st.session_state.files = [x for x in st.session_state.files if x["id"] != f["id"]]
+                        show_toast({"type": "info", "title": "File Removed", "body": f"{f['name']} deleted."})
+                        st.rerun()
         else:
-            self._notifs_tab.pack(fill="both", expand=True)
-            self._notifs_tab.refresh_history(self._notifs)
+            st.markdown(f"""
+            <div style="text-align:center;padding:40px;color:{C['textMuted']};font-size:13px">
+              <div style="font-size:48px;margin-bottom:12px">{folder['icon']}</div>
+              This folder is empty. Upload your first file above.
+            </div>
+            """, unsafe_allow_html=True)
 
-    def _create_bell_panel(self):
-        panel = tk.Toplevel(self)
-        panel.withdraw()
-        panel.overrideredirect(True)
-        panel.attributes("-topmost", True)
-        panel.configure(bg=SURFACE)
-        panel.resizable(False, False)
+    # --- Folder grid view -----------------------------------------------------
+    else:
+        folders = st.session_state.folders
+        total_files = len(st.session_state.files)
+        st.markdown(f"<div style='color:{C['textMuted']};font-size:11px;font-weight:700;"
+                    f"text-transform:uppercase;letter-spacing:1px;margin-bottom:12px'>"
+                    f"{len(folders)} folders · {total_files} files total</div>",
+                    unsafe_allow_html=True)
 
-        hdr = tk.Frame(panel, bg=SURFACE)
-        hdr.pack(fill="x", padx=12, pady=(12, 6))
-        tk.Label(hdr, text="Notifications", font=("Segoe UI", 11, "bold"),
-                 bg=SURFACE, fg=TEXT).pack(side="left")
-        tk.Button(hdr, text="✕", font=("Segoe UI", 9), bg=SURFACE, fg=MUTED,
-                  relief="flat", cursor="hand2",
-                  command=self._toggle_bell_panel).pack(side="right")
+        cols = st.columns(min(len(folders), 4) or 1)
+        for i, folder in enumerate(folders):
+            file_count = sum(1 for f in st.session_state.files if f["folderId"] == folder["id"])
+            with cols[i % 4]:
+                st.markdown(f"""
+                <div style="background:{C['card']};border:1px solid {C['border']};
+                            border-radius:16px;padding:20px;margin-bottom:8px;
+                            border-top:3px solid {folder['color']}">
+                  <div style="font-size:36px;margin-bottom:10px">{folder['icon']}</div>
+                  <div style="font-size:14px;font-weight:800;color:{C['text']};margin-bottom:4px">
+                    {folder['name']}</div>
+                  <div style="font-size:11px;color:{C['textMuted']};margin-bottom:12px;line-height:1.4">
+                    {folder.get('desc','')}</div>
+                  <span style="font-size:10px;color:{folder['color']};font-weight:700;
+                               background:{folder['color']}18;border-radius:6px;padding:3px 8px">
+                    {file_count} file{'s' if file_count!=1 else ''}</span>
+                </div>
+                """, unsafe_allow_html=True)
 
-        action_row = tk.Frame(panel, bg=SURFACE)
-        action_row.pack(fill="x", padx=12, pady=(0, 6))
-        tk.Button(action_row, text="Mark all read", font=("Segoe UI", 8, "bold"),
-                  bg=SURFACE, fg=ACCENT, relief="flat", cursor="hand2",
-                  command=self._mark_all_read).pack(side="left")
-        tk.Button(action_row, text="Clear all", font=("Segoe UI", 8, "bold"),
-                  bg=SURFACE, fg=ERROR, relief="flat", cursor="hand2",
-                  command=self._clear_all_notifs).pack(side="right")
+                if st.button(f"📂 Open", key=f"open_{folder['id']}"):
+                    st.session_state.open_folder = folder["id"]
+                    st.rerun()
 
-        sep = tk.Frame(panel, bg=BORDER, height=1)
-        sep.pack(fill="x")
+                # Rename / Delete via popover
+                act1, act2 = st.columns(2)
+                with act1:
+                    with st.popover("✏️"):
+                        new_fn = st.text_input("New name", value=folder["name"],
+                                               key=f"rfold_{folder['id']}")
+                        if st.button("Save", key=f"rfoldsave_{folder['id']}"):
+                            for fo in st.session_state.folders:
+                                if fo["id"] == folder["id"]:
+                                    fo["name"] = new_fn.strip() or fo["name"]
+                            st.rerun()
+                with act2:
+                    if st.button("🗑", key=f"delfold_{folder['id']}"):
+                        st.session_state.folders = [fo for fo in st.session_state.folders
+                                                     if fo["id"] != folder["id"]]
+                        st.session_state.files = [f for f in st.session_state.files
+                                                   if f["folderId"] != folder["id"]]
+                        show_toast({"type": "warning", "title": "Folder Deleted",
+                                    "body": f'"{folder["name"]}" and its files removed.'})
+                        st.rerun()
 
-        self._bell_scroll = ScrollFrame(panel, bg=SURFACE)
-        self._bell_scroll.pack(fill="both", expand=True)
-        panel.geometry("320x480")
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2 – NOTIFICATIONS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_notifs:
 
-        # Close when clicking outside
-        panel.bind("<FocusOut>", lambda e: None)
-        return panel
+    notifs = st.session_state.notifs
+    unread_count = sum(1 for n in notifs if not n["read"])
 
-    def _toggle_bell_panel(self):
-        if self._bell_panel_visible:
-            self._bell_panel.withdraw()
-            self._bell_panel_visible = False
+    # ── Stats row ──────────────────────────────────────────────────────────
+    m1, m2, m3, m4 = st.columns(4)
+    metrics = [
+        ("📊 Total",    len(notifs),                                   C["accent"]),
+        ("✅ Success",  sum(1 for n in notifs if n["type"]=="success"), C["success"]),
+        ("❌ Errors",   sum(1 for n in notifs if n["type"]=="error"),   C["error"]),
+        ("⚠️ Warnings", sum(1 for n in notifs if n["type"] in
+                          ("warning","deadline","exam")),               C["warning"]),
+    ]
+    for col, (label, val, color) in zip([m1,m2,m3,m4], metrics):
+        with col:
+            st.markdown(f"""
+            <div style="background:{C['surface']};border:1px solid {C['border']};
+                        border-radius:12px;padding:14px 16px;
+                        border-top:3px solid {color};margin-bottom:16px">
+              <div style="font-size:24px;font-weight:900;color:{color}">{val}</div>
+              <div style="font-size:11px;color:{C['textMuted']};margin-top:2px">{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── Trigger buttons ────────────────────────────────────────────────────
+    st.markdown(f"<div style='font-size:12px;font-weight:800;color:{C['text']};"
+                f"text-transform:uppercase;letter-spacing:1px;margin-bottom:10px'>"
+                f"Fire Notifications</div>", unsafe_allow_html=True)
+
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        # Success
+        with st.expander("✅ Success", expanded=False):
+            if st.button("Note Saved Successfully", key="t_s1"):
+                show_toast({"type":"success","title":"Note Saved Successfully","body":"Study notes for Chapter 7 saved."})
+                st.rerun()
+            if st.button("Assignment Submitted", key="t_s2"):
+                show_toast({"type":"success","title":"Assignment Submitted","body":"Physics assignment submitted at 11:45 PM."})
+                st.rerun()
+            if st.button("Password Added", key="t_s3"):
+                show_toast({"type":"success","title":"Password Added","body":"Credential for 'College Portal' saved."})
+                st.rerun()
+
+        # Errors
+        with st.expander("❌ Errors", expanded=False):
+            if st.button("Invalid Login Credentials", key="t_e1"):
+                show_toast({"type":"error","title":"Invalid Login Credentials","body":"Check your username and password."})
+                st.rerun()
+            if st.button("Failed to Save Data", key="t_e2"):
+                show_toast({"type":"error","title":"Failed to Save","body":"Network timeout. Changes not saved."})
+                st.rerun()
+
+        # Warnings
+        with st.expander("⚠️ Warnings", expanded=False):
+            if st.button("Assignment Due Tomorrow", key="t_w1"):
+                show_toast({"type":"warning","title":"Assignment Due Tomorrow","body":"Maths Assignment 3 due at 11:59 PM."})
+                st.rerun()
+            if st.button("Exam in 2 Days", key="t_w2"):
+                show_toast({"type":"warning","title":"Exam in 2 Days","body":"Physics Unit Test — Thursday 9 AM."})
+                st.rerun()
+
+    with right_col:
+        # Info
+        with st.expander("ℹ️ Info", expanded=False):
+            if st.button("New Update Available", key="t_i1"):
+                show_toast({"type":"info","title":"New Update Available","body":"v2.4.1 — improved timetable sync."})
+                st.rerun()
+            if st.button("Timetable Updated", key="t_i2"):
+                show_toast({"type":"info","title":"Timetable Updated","body":"Wednesday's lab moved to Room 204."})
+                st.rerun()
+
+        # Reminders / Special
+        with st.expander("🔔 Reminders & Special", expanded=False):
+            if st.button("Good Morning! 3 Classes", key="t_r1"):
+                show_toast({"type":"reminder","title":"Good Morning! ☀️","body":"3 classes today. First at 9:00 AM."})
+                st.rerun()
+            if st.button("Deadline in 4 Hours ⏰", key="t_r2"):
+                show_toast({"type":"deadline","title":"Deadline in 4 Hours ⏰","body":"Network Security — submit before 6 PM."})
+                st.rerun()
+            if st.button("AFCAT Session at 6 PM 📚", key="t_r3"):
+                show_toast({"type":"reminder","title":"AFCAT Study Session 📚","body":"Study session at 6 PM tonight."})
+                st.rerun()
+            if st.button("Birthday — Priya 🎂", key="t_b1"):
+                show_toast({"type":"birthday","title":"Today is Priya's Birthday 🎂","body":"Don't forget to wish her!"})
+                st.rerun()
+            if st.button("Exam Alert — AFCAT 📝", key="t_x1"):
+                show_toast({"type":"exam","title":"Exam Starting Soon 📝","body":"AFCAT mock test in 30 minutes!"})
+                st.rerun()
+
+        # Quick fire
+        with st.expander("⚡ Quick Fire", expanded=False):
+            if st.button("⚡ Fire 5 Random Notifications", key="t_qf"):
+                picks = random.sample(DEMO_NOTIFS, min(5, len(DEMO_NOTIFS)))
+                for p in picks:
+                    n = new_notif(p)
+                    st.session_state.notifs.insert(0, n)
+                st.toast("⚡ Fired 5 random notifications!")
+                st.rerun()
+
+    # ── History panel ─────────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    if notifs:
+        hdr1, hdr2, hdr3 = st.columns([2, 1, 1])
+        with hdr1:
+            badge = (f" <span style='background:{C['error']};color:#fff;border-radius:20px;"
+                     f"padding:2px 7px;font-size:10px'>{unread_count} unread</span>"
+                     if unread_count else "")
+            st.markdown(f"<div style='font-size:14px;font-weight:800;color:{C['text']}'>"
+                        f"History{badge}</div>", unsafe_allow_html=True)
+        with hdr2:
+            if unread_count and st.button("✓ Mark all read"):
+                for n in st.session_state.notifs:
+                    n["read"] = True
+                st.rerun()
+        with hdr3:
+            if st.button("🗑 Clear all", key="clear_all_notifs"):
+                st.session_state.notifs = []
+                st.rerun()
+
+        # Filter
+        filter_options = ["all", "unread", "success", "error", "warning", "reminder"]
+        selected_filter = st.selectbox(
+            "Filter", filter_options,
+            index=filter_options.index(st.session_state.notif_filter),
+            label_visibility="collapsed", key="notif_filter_select"
+        )
+        st.session_state.notif_filter = selected_filter
+
+        filtered = notifs
+        if selected_filter == "unread":
+            filtered = [n for n in notifs if not n["read"]]
+        elif selected_filter not in ("all", "unread"):
+            filtered = [n for n in notifs if n["type"] == selected_filter]
+
+        st.markdown(f"<div style='background:{C['surface']};border:1px solid {C['border']};"
+                    f"border-radius:14px;padding:8px 12px;margin-top:8px'>",
+                    unsafe_allow_html=True)
+        if not filtered:
+            st.markdown(f"<div style='text-align:center;padding:24px;color:{C['textMuted']};font-size:13px'>"
+                        f"🎉 All caught up!</div>", unsafe_allow_html=True)
         else:
-            self._refresh_bell_panel()
-            bx = self._bell_btn.winfo_rootx()
-            by = self._bell_btn.winfo_rooty() + self._bell_btn.winfo_height() + 4
-            self._bell_panel.geometry(f"320x480+{bx - 270}+{by}")
-            self._bell_panel.deiconify()
-            self._bell_panel.lift()
-            self._bell_panel_visible = True
-
-    def _refresh_bell_panel(self):
-        for w in self._bell_scroll.inner.winfo_children():
-            w.destroy()
-        if not self._notifs:
-            tk.Label(self._bell_scroll.inner, text="🎉 All caught up!",
-                     font=("Segoe UI", 10), bg=SURFACE, fg=MUTED).pack(pady=20)
-            return
-        for n in self._notifs[:20]:
-            self._bell_item(self._bell_scroll.inner, n)
-
-    def _bell_item(self, parent, n):
-        cfg = TYPE_CFG.get(n["type"], TYPE_CFG["info"])
-        frm = tk.Frame(parent, bg=CARD if not n["read"] else SURFACE,
-                       highlightthickness=1, highlightbackground=BORDER)
-        frm.pack(fill="x", pady=1, padx=4)
-        tk.Label(frm, text=cfg["icon"], font=("Segoe UI Emoji", 12),
-                 bg=cfg["bg"], fg=cfg["color"], width=3, pady=8).pack(side="left")
-        txt = tk.Frame(frm, bg=frm["bg"])
-        txt.pack(side="left", fill="both", expand=True, padx=8, pady=6)
-        row = tk.Frame(txt, bg=frm["bg"])
-        row.pack(fill="x")
-        if not n["read"]:
-            tk.Label(row, text="●", font=("Segoe UI", 7),
-                     bg=frm["bg"], fg=cfg["color"]).pack(side="left")
-        tk.Label(row, text=n["title"], font=("Segoe UI", 9, "bold"),
-                 bg=frm["bg"], fg=TEXT).pack(side="left")
-        tk.Label(txt, text=n["body"], font=("Segoe UI", 8),
-                 bg=frm["bg"], fg=MUTED, anchor="w", wraplength=200).pack(fill="x")
-        acts = tk.Frame(frm, bg=frm["bg"])
-        acts.pack(side="right", padx=4)
-        if not n["read"]:
-            tk.Button(acts, text="✓", font=("Segoe UI", 7), bg=HOVER, fg=MUTED,
-                      relief="flat", padx=3, cursor="hand2",
-                      command=lambda nid=n["id"]: self._mark_read(nid)).pack(pady=1)
-        tk.Button(acts, text="✕", font=("Segoe UI", 7), bg=HOVER, fg=ERROR,
-                  relief="flat", padx=3, cursor="hand2",
-                  command=lambda nid=n["id"]: self._delete_notif(nid)).pack(pady=1)
-
-    # ── Notification management ──
-    def _add_notif(self, data, toast=True, modal=False):
-        n = {**data, "id": make_id(), "read": False, "time": now_str()}
-        self._notifs.insert(0, n)
-        self._stats["total"] += 1
-        if n["type"] == "success":  self._stats["success"] += 1
-        if n["type"] == "error":    self._stats["error"]   += 1
-        if n["type"] in ("warning", "deadline", "exam"): self._stats["warning"] += 1
-        self._update_stats_ui()
-        if toast:
-            self.toast_mgr.show(n["title"], n["body"], n["type"])
-        if modal:
-            ModalAlert(self, n)
-        if self._bell_panel_visible:
-            self._refresh_bell_panel()
-        if self._current_tab == "notifications":
-            self._notifs_tab.refresh_history(self._notifs)
-
-    def _mark_read(self, nid):
-        for n in self._notifs:
-            if n["id"] == nid:
-                n["read"] = True
-        self._update_stats_ui()
-        if self._bell_panel_visible: self._refresh_bell_panel()
-        if self._current_tab == "notifications": self._notifs_tab.refresh_history(self._notifs)
-
-    def _mark_all_read(self):
-        for n in self._notifs:
-            n["read"] = True
-        self._update_stats_ui()
-        if self._bell_panel_visible: self._refresh_bell_panel()
-        if self._current_tab == "notifications": self._notifs_tab.refresh_history(self._notifs)
-
-    def _delete_notif(self, nid):
-        self._notifs = [n for n in self._notifs if n["id"] != nid]
-        if self._bell_panel_visible: self._refresh_bell_panel()
-        if self._current_tab == "notifications": self._notifs_tab.refresh_history(self._notifs)
-
-    def _clear_all_notifs(self):
-        self._notifs.clear()
-        self._stats = {"total": 0, "success": 0, "error": 0, "warning": 0}
-        self._update_stats_ui()
-        if self._bell_panel_visible: self._refresh_bell_panel()
-        if self._current_tab == "notifications": self._notifs_tab.refresh_history(self._notifs)
-
-    def _update_stats_ui(self):
-        unread = sum(1 for n in self._notifs if not n["read"])
-        for key, lbl in self._stat_labels.items():
-            lbl.config(text=str(self._stats[key]))
-        # Badge
-        if unread > 0:
-            self._unread_badge.config(text=str(unread) if unread < 100 else "99+")
-            # Position badge near bell
-            self._unread_badge.place(in_=self._bell_btn, relx=0.75, rely=0, anchor="nw")
-            self._unread_badge.lift()
-        else:
-            self._unread_badge.place_forget()
-
-
-# ─── Entry Point ──────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    app = PocketHubApp()
-    app.mainloop()
+            for n in filtered:
+                notif_row(n)
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div style='text-align:center;padding:40px;color:{C['textMuted']};font-size:13px'>"
+                    f"No notifications yet. Fire some from above! 🚀</div>",
+                    unsafe_allow_html=True)
